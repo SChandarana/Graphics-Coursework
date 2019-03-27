@@ -7,23 +7,15 @@ var VSHADER_SOURCE =
   uniform mat4 u_NormalMatrix;
   uniform mat4 u_ViewMatrix;
   uniform mat4 u_ProjMatrix;
-  uniform vec3 u_LightColor;    
-  uniform vec3 u_LightDirection; 
   varying vec4 v_Color;
+  varying vec3 v_Normal;
+  varying vec3 v_Position;
   uniform bool u_isLighting;
   void main() {
     gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;
-    if(u_isLighting) 
-    {
-       vec3 normal = normalize((u_NormalMatrix * a_Normal).xyz);
-      float nDotL = max(dot(normal, u_LightDirection), 0.0);
-       // Calculate the color due to diffuse reflection
-       vec3 diffuse = u_LightColor * a_Color.rgb * nDotL;
-       v_Color = vec4(diffuse, a_Color.a);}
-    else
-    {
-       v_Color = a_Color;
-    } 
+    v_Position = vec3(u_ModelMatrix * a_Position);
+    v_Normal = normalize(vec3(u_NormalMatrix * a_Normal));
+    v_Color = a_Color;
   }`;
 
 // Fragment shader program
@@ -31,9 +23,21 @@ var FSHADER_SOURCE =
   `#ifdef GL_ES
   precision mediump float;
   #endif
+  uniform vec3 u_LightColor;    
+  uniform vec3 u_LightPosition; 
+  uniform vec3 u_AmbientLight;
   varying vec4 v_Color;
+  varying vec3 v_Normal;
+  varying vec3 v_Position;
+  uniform sampler2D u_Sampler;
   void main() {
-    gl_FragColor = v_Color;
+    vec3 normal = normalize(v_Normal);
+    vec3 lightDirection = normalize(u_LightPosition - v_Position);
+    float nDotL = max(dot(lightDirection, normal), 0.0);;
+    vec3 diffuse;
+    diffuse = u_LightColor * v_Color.rgb * nDotL;
+    vec3 ambient = u_AmbientLight * v_Color.rgb;
+    gl_FragColor = vec4(diffuse + ambient, v_Color.a);
   }`;
 
 var modelMatrix = new Matrix4(); // The model matrix
@@ -76,24 +80,23 @@ function main() {
   var u_NormalMatrix = gl.getUniformLocation(gl.program, 'u_NormalMatrix');
   var u_ProjMatrix = gl.getUniformLocation(gl.program, 'u_ProjMatrix');
   var u_LightColor = gl.getUniformLocation(gl.program, 'u_LightColor');
-  var u_LightDirection = gl.getUniformLocation(gl.program, 'u_LightDirection');
+  var u_LightPosition = gl.getUniformLocation(gl.program, 'u_LightPosition');
+  var u_AmbientLight = gl.getUniformLocation(gl.program, 'u_AmbientLight');
 
   // Trigger using lighting or not
   var u_isLighting = gl.getUniformLocation(gl.program, 'u_isLighting'); 
 
   if (!u_ModelMatrix || !u_ViewMatrix || !u_NormalMatrix ||
-      !u_ProjMatrix || !u_LightColor || !u_LightDirection ||
-      !u_isLighting ) { 
+      !u_ProjMatrix || !u_LightColor || !u_LightPosition || !u_AmbientLight) { 
     console.log('Failed to Get the storage locations of u_ModelMatrix, u_ViewMatrix, and/or u_ProjMatrix');
     return;
   }
 
   // Set the light color (white)
   gl.uniform3f(u_LightColor, 1.0, 1.0, 1.0);
-  // Set the light direction (in the world coordinate)
-  var lightDirection = new Vector3([-1, 9, 19]);
-  lightDirection.normalize();     // Normalize
-  gl.uniform3fv(u_LightDirection, lightDirection.elements);
+  // Set the light direction (in the world coordinate)    // Normalize
+  gl.uniform3f(u_LightPosition,2.3,4.0,3.5);
+  gl.uniform3f(u_AmbientLight, 0.2,0.2,0.2);
 
   // Calculate the view matrix and the projection matrix
   viewMatrix.setLookAt(0, 10, 20, 0, 0, 0, 0, 1, 0);
@@ -101,7 +104,6 @@ function main() {
   // Pass the model, view, and projection matrix to the uniform variable respectively
   gl.uniformMatrix4fv(u_ViewMatrix, false, viewMatrix.elements);
   gl.uniformMatrix4fv(u_ProjMatrix, false, projMatrix.elements);
-
 
   document.onkeydown = function(ev){
     keydown(ev, gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix);
@@ -252,13 +254,15 @@ function initArrayBuffer (gl, attribute, data, num, type) {
   // Write date into the buffer object
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+
+  var FSIZE = data.BYTES_PER_ELEMENT;
   // Assign the buffer object to the attribute variable
   var a_attribute = gl.getAttribLocation(gl.program, attribute);
   if (a_attribute < 0) {
     console.log('Failed to get the storage location of ' + attribute);
     return false;
   }
-  gl.vertexAttribPointer(a_attribute, num, type, false, 0, 0);
+  gl.vertexAttribPointer(a_attribute, num, gl.FLOAT, false, FSIZE * num, 0);
   // Enable the assignment of the buffer object to the attribute variable
   gl.enableVertexAttribArray(a_attribute);
 
