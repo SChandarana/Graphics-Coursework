@@ -7,23 +7,15 @@ var VSHADER_SOURCE =
   uniform mat4 u_NormalMatrix;
   uniform mat4 u_ViewMatrix;
   uniform mat4 u_ProjMatrix;
-  uniform vec3 u_LightColor;    
-  uniform vec3 u_LightDirection; 
   varying vec4 v_Color;
+  varying vec3 v_Normal;
+  varying vec3 v_Position;
   uniform bool u_isLighting;
   void main() {
     gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;
-    if(u_isLighting) 
-    {
-       vec3 normal = normalize((u_NormalMatrix * a_Normal).xyz);
-      float nDotL = max(dot(normal, u_LightDirection), 0.0);
-       // Calculate the color due to diffuse reflection
-       vec3 diffuse = u_LightColor * a_Color.rgb * nDotL;
-       v_Color = vec4(diffuse, a_Color.a);}
-    else
-    {
-       v_Color = a_Color;
-    } 
+    v_Position = vec3(u_ModelMatrix * a_Position);
+    v_Normal = normalize(vec3(u_NormalMatrix * a_Normal));
+    v_Color = a_Color;
   }`;
 
 // Fragment shader program
@@ -31,9 +23,21 @@ var FSHADER_SOURCE =
   `#ifdef GL_ES
   precision mediump float;
   #endif
+  uniform vec3 u_LightColor;    
+  uniform vec3 u_LightPosition; 
+  uniform vec3 u_AmbientLight;
   varying vec4 v_Color;
+  varying vec3 v_Normal;
+  varying vec3 v_Position;
+  uniform sampler2D u_Sampler;
   void main() {
-    gl_FragColor = v_Color;
+    vec3 normal = normalize(v_Normal);
+    vec3 lightDirection = normalize(u_LightPosition - v_Position);
+    float nDotL = max(dot(lightDirection, normal), 0.0);;
+    vec3 diffuse;
+    diffuse = u_LightColor * v_Color.rgb * nDotL;
+    vec3 ambient = u_AmbientLight * v_Color.rgb;
+    gl_FragColor = vec4(diffuse + ambient, v_Color.a);
   }`;
 
 var modelMatrix = new Matrix4(); // The model matrix
@@ -43,9 +47,14 @@ var g_normalMatrix = new Matrix4();  // Coordinate transformation matrix for nor
 
 var ANGLE_STEP = 3.0;  // The increments of rotation angle (degrees)
 var g_xAngle = 0.0;    // The rotation x angle (degrees)
-var g_yAngle = 0.0;    // The rotation y angle (degrees)
-var g_xMove = 0;
-var g_zMove = 20;
+var g_yAngle = 72.0;    // The rotation y angle (degrees)
+var g_zAngle = 0.0; // Rotation z angle (degrees)
+var g_xMove = -3; //movement of the camera in the x direction
+var g_yMove = 10; // movement of the camera in the y direction
+var g_zMove = 17; // movement of the camera in the z direction
+var g_boat = 0; // movement for the boat
+var g_car = 0; //movement for the car
+var g_wheel = 0; //rotation of the wheels (degrees)
 function main() {
   // Retrieve <canvas> element
   var canvas = document.getElementById('webgl');
@@ -63,8 +72,8 @@ function main() {
     return;
   }
 
-  // Set clear color and enable hidden surface removal
-  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  // Set clear color to cyan and enable hidden surface removal
+  gl.clearColor(0.0, 0.7, 1, 1.0);
   gl.enable(gl.DEPTH_TEST);
 
   // Clear color and depth buffer
@@ -76,24 +85,23 @@ function main() {
   var u_NormalMatrix = gl.getUniformLocation(gl.program, 'u_NormalMatrix');
   var u_ProjMatrix = gl.getUniformLocation(gl.program, 'u_ProjMatrix');
   var u_LightColor = gl.getUniformLocation(gl.program, 'u_LightColor');
-  var u_LightDirection = gl.getUniformLocation(gl.program, 'u_LightDirection');
+  var u_LightPosition = gl.getUniformLocation(gl.program, 'u_LightPosition');
+  var u_AmbientLight = gl.getUniformLocation(gl.program, 'u_AmbientLight');
 
   // Trigger using lighting or not
   var u_isLighting = gl.getUniformLocation(gl.program, 'u_isLighting'); 
 
   if (!u_ModelMatrix || !u_ViewMatrix || !u_NormalMatrix ||
-      !u_ProjMatrix || !u_LightColor || !u_LightDirection ||
-      !u_isLighting ) { 
+      !u_ProjMatrix || !u_LightColor || !u_LightPosition || !u_AmbientLight) { 
     console.log('Failed to Get the storage locations of u_ModelMatrix, u_ViewMatrix, and/or u_ProjMatrix');
     return;
   }
 
   // Set the light color (white)
   gl.uniform3f(u_LightColor, 1.0, 1.0, 1.0);
-  // Set the light direction (in the world coordinate)
-  var lightDirection = new Vector3([-1, 9, 19]);
-  lightDirection.normalize();     // Normalize
-  gl.uniform3fv(u_LightDirection, lightDirection.elements);
+  // Set the light direction (in the world coordinate)    // Normalize
+  gl.uniform3f(u_LightPosition,0,10,20);
+  gl.uniform3f(u_AmbientLight, 0.5,0.5,0.5);
 
   // Calculate the view matrix and the projection matrix
   viewMatrix.setLookAt(0, 10, 20, 0, 0, 0, 0, 1, 0);
@@ -101,7 +109,6 @@ function main() {
   // Pass the model, view, and projection matrix to the uniform variable respectively
   gl.uniformMatrix4fv(u_ViewMatrix, false, viewMatrix.elements);
   gl.uniformMatrix4fv(u_ProjMatrix, false, projMatrix.elements);
-
 
   document.onkeydown = function(ev){
     keydown(ev, gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix);
@@ -124,6 +131,12 @@ function keydown(ev, gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatr
     case 37: // Left arrow key -> the negative rotation of arm1 around the y-axis
       g_yAngle = (g_yAngle - ANGLE_STEP) % 360;
       break;
+    case 73: // 'i' key rotate around z
+      g_zAngle = (g_zAngle + ANGLE_STEP) % 360;
+      break;
+    case 75: // 'k' key rotate around z
+      g_zAngle = (g_zAngle - ANGLE_STEP) % 360;
+      break;
     case 87: // 'w'key -> camera movement
       g_zMove -= 1;
       break;
@@ -136,13 +149,48 @@ function keydown(ev, gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatr
     case 65: // 'a'key -> camera movement 
       g_xMove -= 1;
       break;
+    case 85: // 'u' key -> camera movement
+      g_yMove += 1;
+      break;
+    case 74: //'j' key -> camera movement
+      g_yMove -= 1;
+    case 66: // 'b' key -> boat movement forwards
+      if(g_boat <= 13){
+        g_boat += 0.1;
+      } else {
+        g_boat = -1;
+      }
+      break;
+    case 78:// 'n' key -> boat movement backwards
+      if(g_boat >= -1){
+        g_boat -= 0.1;
+      } else {
+        g_boat = 13;
+      }
+      break;
+    case 67:// 'c' key -> car movement forwards
+      if(g_car <= 8 ){
+        g_wheel = (g_wheel - 10) % 360 ;
+        g_car += 0.1;
+      } else {
+        g_car = -1;
+      }
+      break;
+    case 86:// 'v' key -> car movement backwards
+      if(g_car >= -1){
+        g_wheel = (g_wheel + 10) % 360;
+        g_car -= 0.1;
+      } else {
+        g_car = 8;
+      }
+      break;
     default: return; // Skip drawing at no effective action
   }
 
   // Draw the scene
   draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix);
 }
-function initVertexBuffersData(gl,modelData,color){
+function initVertexBuffersData(gl,modelData,color){ //reading and using data from variables stored in external js
   var vertices = new Float32Array(modelData[0].vertices);
 
   var normals = new Float32Array(modelData[0].normals);
@@ -174,7 +222,7 @@ function initVertexBuffersData(gl,modelData,color){
   return indices.length;
 }
 
-function initVertexBuffersCube(gl) {
+function initVertexBuffersCube(gl, colorData) {
   // Create a cube
   //    v6----- v5
   //   /|      /|
@@ -194,12 +242,12 @@ function initVertexBuffersCube(gl) {
 
 
   var colors = new Float32Array([    // Colors
-    0,0,1,   0,0,1,   0,0,1,  0,0,1,     // v0-v1-v2-v3 front
-    0,0,1,   0,0,1,   0,0,1,  0,0,1,     // v0-v3-v4-v5 right
-    0,0,1,   0,0,1,   0,0,1,  0,0,1,     // v0-v5-v6-v1 up
-    0,0,1,   0,0,1,   0,0,1,  0,0,1,     // v1-v6-v7-v2 left
-    0,0,1,   0,0,1,   0,0,1,  0,0,1,     // v7-v4-v3-v2 down
-    0,0,1,   0,0,1,   0,0,1,  0,0,1　    // v4-v7-v6-v5 back
+    colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],  colorData[0], colorData[1], colorData[2],     // v0-v1-v2-v3 front
+    colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],  colorData[0], colorData[1], colorData[2],     // v0-v3-v4-v5 right
+    colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],  colorData[0], colorData[1], colorData[2],     // v0-v5-v6-v1 up
+    colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],  colorData[0], colorData[1], colorData[2],     // v1-v6-v7-v2 left
+    colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],  colorData[0], colorData[1], colorData[2],     // v7-v4-v3-v2 down
+    colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],   colorData[0], colorData[1], colorData[2],  colorData[0], colorData[1], colorData[2]　    // v4-v7-v6-v5 back
  ]);
 
 
@@ -252,13 +300,15 @@ function initArrayBuffer (gl, attribute, data, num, type) {
   // Write date into the buffer object
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+
+  var FSIZE = data.BYTES_PER_ELEMENT;
   // Assign the buffer object to the attribute variable
   var a_attribute = gl.getAttribLocation(gl.program, attribute);
   if (a_attribute < 0) {
     console.log('Failed to get the storage location of ' + attribute);
     return false;
   }
-  gl.vertexAttribPointer(a_attribute, num, type, false, 0, 0);
+  gl.vertexAttribPointer(a_attribute, num, gl.FLOAT, false, FSIZE * num, 0);
   // Enable the assignment of the buffer object to the attribute variable
   gl.enableVertexAttribArray(a_attribute);
 
@@ -276,13 +326,10 @@ function popMatrix() { // Retrieve the matrix from the array
   return g_matrixStack.pop();
 }
 function draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix) {
-  viewMatrix.setLookAt(g_xMove, 10, g_zMove, g_xMove, 0, g_zMove-20, 0, 1, 0);
+  viewMatrix.setLookAt(g_xMove, g_yMove, g_zMove, g_xMove+3, g_yMove-10, g_zMove-17, 0, 1, 0);
   gl.uniformMatrix4fv(u_ViewMatrix, false, viewMatrix.elements);
   // Clear color and depth buffer
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-  gl.uniform1i(u_isLighting, true); // Will not apply lighting
-
   // Set the vertex coordinates and color (for the x, y axes)
 
 
@@ -291,7 +338,6 @@ function draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix) {
   // Pass the model matrix to the uniform variable
   gl.uniformMatrix4fv(u_ModelMatrix, false, modelMatrix.elements);
 
-  gl.uniform1i(u_isLighting, false); // Will apply lighting
 
   // Set the vertex coordinates and color (for the cube)
   var n = initVertexBuffersData(gl,bridgeSectionData,[169/255,169/255,169/255]);
@@ -300,12 +346,13 @@ function draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix) {
     return;
   }
 
-  // Rotate, and then translate
-  modelMatrix.setTranslate(0, 0, 0);  // Translation (No translation is supported here)
+  // Rotating the model
+  modelMatrix.setTranslate(1, 0, 0);  // Translation (No translation is supported here)
   modelMatrix.rotate(g_yAngle, 0, 1, 0); // Rotate along y axis
-  modelMatrix.rotate(g_xAngle, 0,0,1); // Rotate along x axis
-  
-  for (var i = 0; i < 5; i++) {
+  modelMatrix.rotate(g_xAngle, 1, 0, 0); // Rotate along x axis
+  modelMatrix.rotate(g_zAngle, 0, 0, 1); // Rotate along z axis
+  //Drawing the bridge in sections
+  for (var i = 0; i < 10; i++) {
     pushMatrix(modelMatrix);
     modelMatrix.translate(0.95*i*2, 0, 0);  // Translation
     modelMatrix.scale(2,2,2);
@@ -314,7 +361,7 @@ function draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix) {
 
   }
 
-//BOAT  
+// Drawing the set of static boats
   var n = initVertexBuffersData(gl,boatData,[165/255,42/255,42/255]);
   if (n < 0){
     console.log('Failed to se the vertex information');
@@ -328,22 +375,107 @@ function draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix) {
       drawbox(gl, u_ModelMatrix, u_NormalMatrix, n);
     modelMatrix = popMatrix();
   }
+// Drawing the moving boat
+  pushMatrix(modelMatrix);
+    modelMatrix.translate(2.5,0,8 - g_boat);
+    modelMatrix.scale(0.5,0.5,0.5);
+    drawbox(gl, u_ModelMatrix,u_NormalMatrix,n);
+  modelMatrix = popMatrix();
 
-  var n = initVertexBuffersCube(gl);
+  //Drawing the water
+  var n = initVertexBuffersCube(gl,[0,0.5,1]);
   if (n < 0){
     console.log('Failed to se the vertex information');
     return;
   }
 
   pushMatrix(modelMatrix);
-   modelMatrix.translate(5,0,0)
+    modelMatrix.translate(5,0,0)
     modelMatrix.scale(5,0,10);
     drawbox(gl,u_ModelMatrix,u_NormalMatrix,n);
   modelMatrix = popMatrix();
+  //Drawing the floor parts 
+  var n = initVertexBuffersCube(gl,[140/255,140/255,140/255]);
+    if (n < 0){
+      console.log('Failed to se the vertex information');
+      return;
+    }
 
+  pushMatrix(modelMatrix);
+    modelMatrix.translate(12,0,5);
+    modelMatrix.rotate(-30,0,1,0);
+    modelMatrix.scale(5,0.2,7);
 
+    drawbox(gl,u_ModelMatrix, u_NormalMatrix, n);
+  modelMatrix = popMatrix();
+
+  pushMatrix(modelMatrix);
+    modelMatrix.translate(15,0,-4.5);
+    
+    modelMatrix.scale(5,0.2,6);
+
+    drawbox(gl,u_ModelMatrix, u_NormalMatrix, n);
+  modelMatrix = popMatrix();
+  //Drawing the grass
+  var n = initVertexBuffersCube(gl,[0.2,1,0.3]);
+  if (n < 0){
+    console.log('Failed to se the vertex information');
+    return;
+  }
+  pushMatrix(modelMatrix)
+    modelMatrix.translate(1,0,0);
+    modelMatrix.scale(1,0.1,10);
+    drawbox(gl,u_ModelMatrix,u_NormalMatrix,n);
+  modelMatrix = popMatrix();
+//Drawing the building
+  var n = initVertexBuffersData(gl,boatClubData, [0.5,0.5,0.5]);
+  pushMatrix(modelMatrix);
+    modelMatrix.translate(12,0.2,5);
+    modelMatrix.rotate(145,0,1,0);
+    drawbox(gl,u_ModelMatrix,u_NormalMatrix,n);
+  modelMatrix = popMatrix();
+//Drawing the car  
+  var n = initVertexBuffersData(gl,carFrameData, [1,0,0]);
+  pushMatrix(modelMatrix);
+    modelMatrix.translate(1.5 + g_car,1.5,-0.75);
+    drawbox(gl,u_ModelMatrix,u_NormalMatrix,n);
+  modelMatrix = popMatrix();
+// Drawing the 4 wheels
+  var n = initVertexBuffersData(gl,wheelData,[0.1,0.1,0.1]);
+  var x = 0;
+  var y = 1.6;
+  var z = 0;
+  for (var i = 0; i < 4; i++) {
+    
+    switch(i){
+      case 0:
+        x = 1.845;
+        z = -0.8;
+        break;
+      case 1:
+        x = 1.845;
+        z = -1.25;
+        break;
+      case 2:
+        x = 2.245;
+        z = -0.8;
+        break;
+      case 3:
+        x = 2.245;
+        z = -1.25;
+        break;
+      default: return;
+
+    }
+    pushMatrix(modelMatrix);
+      modelMatrix.translate(x+g_car,y,z);
+      modelMatrix.rotate(g_wheel,0,0,1);
+      drawbox(gl,u_ModelMatrix,u_NormalMatrix,n);
+    modelMatrix = popMatrix();
+  }
 }
 
+//function to draw an object
 function drawbox(gl, u_ModelMatrix, u_NormalMatrix, n) {
   pushMatrix(modelMatrix);
 

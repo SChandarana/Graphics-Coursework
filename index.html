@@ -2,20 +2,37 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Model Transformation</title>
+    <title>Boat Club 3D Model</title>
   </head>
 
   <body onload="main()">
-    <canvas id="webgl" width="400" height="400">
-    Please use a browser that supports "canvas"
-    </canvas>
-
+    <div style = "float:left;">
+        <canvas id="webgl" width="600" height="600">
+        Please use a browser that supports "canvas"
+        </canvas>
+    </div>
+    <div style ="float:right; margin-right: 2%; margin-top: 2%">
+      <h1> CG Coursework 3D Modelling </h1>
+      <h2> I have modelled the Boat Club, Elvet Bridge and the river using WebGL </h2>
+      <h2> Here are the controls for manipulating the model </h2>
+      <ul>
+        <li> Move Camera (Forward, Backward, left and right) - WASD </li>
+        <li> Move Camera (Up and Down) - U/J </li>
+        <li> Rotate model - Arrow Keys and I/K (for all 3 planes of rotation) </li>
+        <li> Moving the boat - B/N (forwards and backwards) </li>
+        <li> Moving the car - C/V (forwards and backwards, also cause the wheels of the car to rotate) </li>
+      </ul>
+    </div>
     <script src="lib/webgl-utils.js"></script>
     <script src="lib/webgl-debug.js"></script>
     <script src="lib/cuon-utils.js"></script>
     <script src="lib/cuon-matrix.js"></script>
     <script src="Models/bridgeSection.js"></script>
     <script src="Models/boat.js"></script>
+    <script src="Models/cube.js"></script>
+    <script src="Models/boatClub.js"></script>
+    <script src="Models/carFrame.js"></script>
+    <script src="Models/wheel.js"></script>
     <script src="index.js"></script>
 
   </body>
