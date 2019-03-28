@@ -2,7 +2,8 @@
 var VSHADER_SOURCE =
   `attribute vec4 a_Position;
   attribute vec4 a_Color;
-  attribute vec4 a_Normal;        
+  attribute vec4 a_Normal;
+  attribute vec2 a_TexCoords;        
   uniform mat4 u_ModelMatrix;
   uniform mat4 u_NormalMatrix;
   uniform mat4 u_ViewMatrix;
@@ -10,12 +11,14 @@ var VSHADER_SOURCE =
   varying vec4 v_Color;
   varying vec3 v_Normal;
   varying vec3 v_Position;
+  varying vec2 v_TexCoords;
   uniform bool u_isLighting;
   void main() {
     gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;
     v_Position = vec3(u_ModelMatrix * a_Position);
     v_Normal = normalize(vec3(u_NormalMatrix * a_Normal));
     v_Color = a_Color;
+    v_TexCoords = a_TexCoords;
   }`;
 
 // Fragment shader program
@@ -30,12 +33,14 @@ var FSHADER_SOURCE =
   varying vec3 v_Normal;
   varying vec3 v_Position;
   uniform sampler2D u_Sampler;
+  varying vec2 v_TexCoords;
   void main() {
     vec3 normal = normalize(v_Normal);
     vec3 lightDirection = normalize(u_LightPosition - v_Position);
     float nDotL = max(dot(lightDirection, normal), 0.0);;
     vec3 diffuse;
-    diffuse = u_LightColor * v_Color.rgb * nDotL;
+    vec4 TexColor = texture2D(u_Sampler,v_TexCoords);
+    diffuse = u_LightColor * TexColor.rgb * nDotL * 1.2;
     vec3 ambient = u_AmbientLight * v_Color.rgb;
     gl_FragColor = vec4(diffuse + ambient, v_Color.a);
   }`;
@@ -82,7 +87,7 @@ function main() {
   var u_LightColor = gl.getUniformLocation(gl.program, 'u_LightColor');
   var u_LightPosition = gl.getUniformLocation(gl.program, 'u_LightPosition');
   var u_AmbientLight = gl.getUniformLocation(gl.program, 'u_AmbientLight');
-
+  var u_Sampler = gl.getUniformLocation(gl.program, 'u_Sampler');
   // Trigger using lighting or not
   var u_isLighting = gl.getUniformLocation(gl.program, 'u_isLighting'); 
 
@@ -106,13 +111,13 @@ function main() {
   gl.uniformMatrix4fv(u_ProjMatrix, false, projMatrix.elements);
 
   document.onkeydown = function(ev){
-    keydown(ev, gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix);
+    keydown(ev, gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix, u_Sampler);
   };
 
-  draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix);
+  draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix, u_Sampler);
 }
 
-function keydown(ev, gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix) {
+function keydown(ev, gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix, u_Sampler) {
   switch (ev.keyCode) {
     case 40: // Up arrow key -> the positive rotation of arm1 around the y-axis
       g_xAngle = (g_xAngle + ANGLE_STEP) % 360;
@@ -142,15 +147,15 @@ function keydown(ev, gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatr
   }
 
   // Draw the scene
-  draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix);
+  draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_ProjMatrix, u_Sampler);
 }
 function initVertexBuffersData(gl,modelData,color){
   var vertices = new Float32Array(modelData[0].vertices);
 
   var normals = new Float32Array(modelData[0].normals);
  
-  var indices =new Uint8Array(modelData[0].faces.flat());
-  
+  var indices =new Uint8Array([].concat.apply([],modelData[0].faces));
+  var texCoords = new Float32Array([].concat.apply([],modelData[0].texturecoords));
   var temp = []
   for(var i = 0; i < vertices.length/3; i++){
     temp.push(color[0]);
@@ -162,7 +167,7 @@ function initVertexBuffersData(gl,modelData,color){
   if (!initArrayBuffer(gl, 'a_Position', vertices, 3, gl.FLOAT)) return -1;
   if (!initArrayBuffer(gl, 'a_Color', colors, 3, gl.FLOAT)) return -1;
   if (!initArrayBuffer(gl, 'a_Normal', normals, 3, gl.FLOAT)) return -1;
-
+  if (!initArrayBuffer(gl, 'a_TexCoords', texCoords,2)) return -1;
   // Write the indices to the buffer object
   var indexBuffer = gl.createBuffer();
   if (!indexBuffer) {
@@ -279,7 +284,7 @@ function pushMatrix(m) { // Store the specified matrix to the array
 function popMatrix() { // Retrieve the matrix from the array
   return g_matrixStack.pop();
 }
-function draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix) {
+function draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix, u_Sampler) {
   viewMatrix.setLookAt(g_xMove, 10, g_zMove, g_xMove, 0, g_zMove-20, 0, 1, 0);
   gl.uniformMatrix4fv(u_ViewMatrix, false, viewMatrix.elements);
   // Clear color and depth buffer
@@ -298,54 +303,60 @@ function draw(gl, u_ModelMatrix, u_NormalMatrix, u_isLighting, u_ViewMatrix) {
   gl.uniform1i(u_isLighting, false); // Will apply lighting
 
   // Set the vertex coordinates and color (for the cube)
-  var n = initVertexBuffersData(gl,bridgeSectionData,[169/255,169/255,169/255]);
-  if (n < 0) {
-    console.log('Failed to set the vertex information');
-    return;
-  }
+  // var n = initVertexBuffersData(gl,bridgeSectionData,[169/255,169/255,169/255]);
+  // if (n < 0) {
+  //   console.log('Failed to set the vertex information');
+  //   return;
+  // }
 
   // Rotate, and then translate
   modelMatrix.setTranslate(0, 0, 0);  // Translation (No translation is supported here)
   modelMatrix.rotate(g_yAngle, 0, 1, 0); // Rotate along y axis
   modelMatrix.rotate(g_xAngle, 0,0,1); // Rotate along x axis
   
-  for (var i = 0; i < 5; i++) {
-    pushMatrix(modelMatrix);
-    modelMatrix.translate(0.95*i*2, 0, 0);  // Translation
-    modelMatrix.scale(2,2,2);
-      drawbox(gl, u_ModelMatrix, u_NormalMatrix, n);
-    modelMatrix = popMatrix();
+  // for (var i = 0; i < 5; i++) {
+  //   pushMatrix(modelMatrix);
+  //   modelMatrix.translate(0.95*i*2, 0, 0);  // Translation
+  //   modelMatrix.scale(2,2,2);
+  //     drawbox(gl, u_ModelMatrix, u_NormalMatrix, n);
+  //   modelMatrix = popMatrix();
 
-  }
+  // }
 
-//BOAT  
-  var n = initVertexBuffersData(gl,boatData,[165/255,42/255,42/255]);
-  if (n < 0){
-    console.log('Failed to se the vertex information');
-    return;
-  }
-  for (var i = 0; i < 7; i++) {
-    pushMatrix(modelMatrix);
-      modelMatrix.translate(5 - 0.25*i,0,4+0.4*i);
-      modelMatrix.rotate(75,0,1,0);
-      modelMatrix.scale(0.5,0.5,0.5);
-      drawbox(gl, u_ModelMatrix, u_NormalMatrix, n);
-    modelMatrix = popMatrix();
-  }
+// //BOAT  
+//   var n = initVertexBuffersData(gl,boatData,[165/255,42/255,42/255]);
+//   if (n < 0){
+//     console.log('Failed to se the vertex information');
+//     return;
+//   }
+//   for (var i = 0; i < 7; i++) {
+//     pushMatrix(modelMatrix);
+//       modelMatrix.translate(5 - 0.25*i,0,4+0.4*i);
+//       modelMatrix.rotate(75,0,1,0);
+//       modelMatrix.scale(0.5,0.5,0.5);
+//       drawbox(gl, u_ModelMatrix, u_NormalMatrix, n);
+//     modelMatrix = popMatrix();
+//   }
 
-  var n = initVertexBuffersCube(gl);
-  if (n < 0){
-    console.log('Failed to se the vertex information');
-    return;
-  }
+//   var n = initVertexBuffersCube(gl);
+//   if (n < 0){
+//     console.log('Failed to se the vertex information');
+//     return;
+//   }
 
+//   pushMatrix(modelMatrix);
+//    modelMatrix.translate(5,0,0)
+//     modelMatrix.scale(5,0,10);
+//     drawbox(gl,u_ModelMatrix,u_NormalMatrix,n);
+//   modelMatrix = popMatrix();
+  var n = initVertexBuffersData(gl, cubeData, [0,1,0]);
+  texture = loadTexture(gl, './Models/cube.png');
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D,texture);
+  gl.uniform1i(u_Sampler, 0);
   pushMatrix(modelMatrix);
-   modelMatrix.translate(5,0,0)
-    modelMatrix.scale(5,0,10);
-    drawbox(gl,u_ModelMatrix,u_NormalMatrix,n);
+    drawbox(gl, u_ModelMatrix,u_NormalMatrix,n);
   modelMatrix = popMatrix();
-
-
 }
 
 function drawbox(gl, u_ModelMatrix, u_NormalMatrix, n) {
@@ -363,4 +374,43 @@ function drawbox(gl, u_ModelMatrix, u_NormalMatrix, n) {
     gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_BYTE, 0);
 
   modelMatrix = popMatrix();
+}
+
+function loadTexture(gl,url){
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  //code to make the texture usable even if the image hasn't loaded
+  const level = 0;
+  const internalFormat = gl.RGBA;
+  const width = 1;
+  const height = 1;
+  const border = 0;
+  const srcFormat = gl.RGBA;
+  const srcType = gl.UNSIGNED_BYTE;
+  const pixel = new Uint8Array([0, 0, 255, 255]);  // opaque blue
+  gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
+                width, height, border, srcFormat, srcType,
+                pixel);
+
+  const image = new Image();
+  image.onload = function(){
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D (gl.TEXTURE_2D, level, internalFormat, srcFormat,srcType,image);
+    if (isPowerOf2(image.width) && isPowerOf2(image.height)) {
+       // Yes, it's a power of 2. Generate mips.
+       gl.generateMipmap(gl.TEXTURE_2D);
+    } else {
+       // No, it's not a power of 2. Turn off mips and set
+       // wrapping to clamp to edge
+       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    }
+  };
+  image.src = url;
+  return texture;
+}
+
+function isPowerOf2(value){
+  return (value & (value - 1)) == 0;
 }
